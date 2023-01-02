@@ -1,10 +1,14 @@
 #include <windows.h>
 #include <sysinfoapi.h>
 #include <stdio.h>
+#include <conio.h>
 
 #include <iostream>
 #include <sstream>
 #include <vector>
+
+#include "hook.hpp"
+
 using std::vector;
 using std::string;
 
@@ -21,9 +25,15 @@ f_helloFromDll1 helloFromDll1;
 #define MSG(x) MessageBoxA(hwnd, x, "", MB_OKCANCEL)
 #define MSGW(x) MessageBoxW(hwnd, x, L"", MB_OKCANCEL)
 
+typedef void (*defTrampolineFunc)(HWND hwnd);
+
+void *trampoline_address;
+
 void helloFromExe(HWND hwnd)
 {
 	MessageBoxA(hwnd, "hello from exe!", "", MB_OKCANCEL);
+	defTrampolineFunc trampoline = (defTrampolineFunc)trampoline_address;
+	return trampoline(hwnd);
 }
 
 int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int nCmdShow)
@@ -47,9 +57,7 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
 	RegisterClass(&wC);
 
 	HWND hwnd = CreateWindow("Main", "Main", WS_OVERLAPPEDWINDOW, CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT, 0, 0, hInstance, 0);
-
 	ShowWindow(hwnd, SW_SHOW);
-
 	UpdateWindow(hwnd);
 
 	HINSTANCE hdll = LoadLibraryA(".\\dllprojdll.dll");
@@ -65,13 +73,15 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
 	helloFromDll = (f_helloFromDll)GetProcAddress(hdll, "helloFromDll");
 	if (!helloFromDll) {
 		MSG("could not locate the function helloFromDll");
-		goto out;
+		FreeLibrary(hdll);
+		return EXIT_FAILURE;
 	}
 
 	helloFromDll1 = (f_helloFromDll)GetProcAddress(hdll, "helloFromDll1");
 	if (!helloFromDll1) {
 		MSG("could not locate the function helloFromDll1");
-		goto out;
+		FreeLibrary(hdll);
+		return EXIT_FAILURE;
 	}
 
 	printf("dll base addr = %08x\n", reinterpret_cast<std::uint32_t>(helloFromDll) - 0x70);
@@ -79,6 +89,16 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
 	printf("helloFromDll1 addr = %08x\n", reinterpret_cast<std::uint32_t>(helloFromDll1));
 	printf("helloFromExe addr = %08x\n", reinterpret_cast<std::uint32_t>(helloFromExe));
 
+	Hook myHook(reinterpret_cast<void*>(helloFromDll), reinterpret_cast<void*>(&helloFromExe));
+	myHook.applyHook();
+	trampoline_address = reinterpret_cast<void*>(myHook.mTrampolinePtr);
+
+	helloFromDll(hwnd);
+
+	myHook.removeHook();
+	helloFromDll(hwnd);
+
+	myHook.applyHook();
 	helloFromDll(hwnd);
 
 	while (true)
@@ -88,9 +108,6 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
 			return 0;
 		DispatchMessage(&msg);
 	}
-
-out:
-	FreeLibrary(hdll);
 
 	return msg.wParam;
 }

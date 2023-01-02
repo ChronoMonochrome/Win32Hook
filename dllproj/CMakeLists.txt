@@ -4,7 +4,7 @@ file(GLOB_RECURSE SRC_EXE_FILES CONFIGURE_DEPENDS
     "*_exe.cpp"
 )
 
-target_sources(dllprojexe PRIVATE ${SRC_EXE_FILES})
+target_sources(dllprojexe PRIVATE ${SRC_EXE_FILES} hook.cpp)
 
 target_compile_options(dllprojexe PUBLIC "/std:c++latest")
 
